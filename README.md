@@ -22,7 +22,7 @@ This software relies on Lead-DBS/OSS-DBS native space reconstructions with the D
 
 ### Operation
 Start the app by clicking VTA_start, or calling it from the terminal.
-A window “VTA optimisation” should appear, with a button on the top-left, to select a leaddbs folder. Click it and navigate to a “leaddbs” folder (it will automatically locate any “leaddbs” folders up to 3 folders levels down).
+A window “VTA optimisation” should appear, with a button on the top-left, to select a leaddbs folder. Click it and navigate to a “leaddbs” folder (it will automatically locate any “leaddbs” folders up to 3 folder levels down).
 A list of the available patient folders will appear in the list box on the left. You can select one or more folders to run the calculation (1st tab).
 
 #### Calculate
@@ -50,10 +50,12 @@ The contacts are numbered in a manufacturer-independent way, starting from the t
 #### Single patient
 The second tab allows fine-tuning of the current selection. Select a leaddbs folder (top left button) where some processing has been done, as described above. Then select a processed patient folder from the list, and click "load". Cycle through the Left and Right hemispheres to ensure both are loaded.
 
-A curve will be displayed of the left panel showing how much of the Motor STN subregion is covered by the VTA (at least 200 μV/mm) depending on the current. The curve is a cubic spline fit and relies on the "multiple currents" option - it will revert to a simple linear interpolation if not enough VTAs were calculated previously.
+A curve will be displayed of the left panel showing the fraction of the Motor STN subregion estimated to be covered by the VTA (field intensity of 200 mV/mm at least) depending on the current. The curve is a cubic spline fit and relies on the "multiple currents" option in the calculation process - it will revert to a simple linear interpolation if not enough current-VTA pairs were calculated previously.
 
 Detailed contact and current information is updated in the box with the “current settings” under the panel.
-Moving the slider under the left panel adjusts the current (moving vertical blue line on the plot). The bar plot on the right shows the fractions of the motor, associative and limbic subregions of the STN that are expected to be covered using the selected current.
+Moving the slider under the left panel adjusts the current (moving vertical blue line on the plot).
+
+The bar plot on the right shows the fractions of the motor, associative and limbic subregions of the STN that are expected to be covered using the selected current.
 
 The box on the bottom-right can display an indicator on the curve using the harmonic means of motor STN overlap with :
 1.	VTA fraction within the motor STN (conservative – aims to limit VTA leakage)
@@ -63,6 +65,7 @@ The box on the bottom-right can display an indicator on the curve using the harm
 A small slider adjusts how much of the harmonic mean range (from the maximum harmonic mean) will be highlighted on the curve. Note: this is not percentile-based; it uses the range from the minimum harmonic mean (0%) to the maximum (100%) - the distribution is not considered. For example setting the slider to 50% will highlight the <i>top 50% of the range</i> from 50% of the harmonic mean range (not the median, but average of minimum and maximum) to 100% (the maximum).
 
 Clicking the “save” button saves the current settings and plots for both hemispheres to a printable html file, with a timestamp (creation date and time).
+
 
 ## Licensing and Copyright notice
 This software is released under the terms of the GNU General Public License v3.0 (GPL-3.0). You can redistribute it and/or modify it under the terms of the GPL-3.0 as published by the Free Software Foundation.
