@@ -21,12 +21,16 @@ dipy (handled above)
 This software relies on Lead-DBS/OSS-DBS native space reconstructions with the DISTAL atlas. Only one reconstruction is needed, and only once, per patient folder. This can be done with either the 3D rendering or Lead Group stimulation setup: Create a new stimulation, give it a name including "ossdbs", and use OSS-DBS instead of the default (Fieldtrip/Simbio). Lead-DBS fails when rendering both hemispheres with OSS-DBS, so only select the Right hemisphere and add a dummy contact selection with a non-zero current in the first box.
 
 ### Operation
-Start the app by clicking VTA_start, or calling it from the terminal.
+Start the app by clicking VTA_start, or calling it from the terminal. For example:
+python3 VTA_start.py
+
 A window “VTA optimisation” should appear, with a button on the top-left, to select a leaddbs folder. Click it and navigate to a “leaddbs” folder (it will automatically locate any “leaddbs” folders up to 3 folder levels down).
 A list of the available patient folders will appear in the list box on the left. You can select one or more folders to run the calculation (1st tab).
 
 #### Calculate
 The contact selection uses a contact ranking system. The best 1-2 contacts are always selected (1 contact if using an old electrode type with non-directional contacts). A 3rd contact can be added if its rank score is close to the top selection. 
+
+The contact ranking is based on the geometry of the configuration or the geometry of the configuration and clinical review information. An example of a clinical review record is located in the "clinical review input" folder (clinical_review.xlsx). The data can be filled either directly or through the helper python script (which ensure no inappropriate data formats can be entered). The column headers must match the patient folder names (without the "sub-" prefix by Lead-DBS). The column and row format must be maintained (number of rows, no gaps between columns). If a "clinical_review.xlsx" file is placed in the "leaddbs" folder it will be used by the main app as additional input for the contact suggestions (a "nudged" version of the contact scores will appear in the output in the terminal).
 
 Selecting “bipolar” will use the same exact contacts as the monopolar calculation, with 2 differences: 
 1.	in Bipolar, the case contact is disabled, and both (+) and (-) poles are assigned to numbered lead contacts,
