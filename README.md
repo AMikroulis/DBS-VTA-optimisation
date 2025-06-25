@@ -11,8 +11,11 @@ Python Libraries: Install the following Python libraries using pip:
 pip install numpy pandas matplotlib scipy pyqt5 pyqtgraph ngsolve dipy
 
 OSS-DBSv2 prerequisites:
+
 NEURON: Download and install NEURON from https://neuron.yale.edu/.
+
 ngsolve (handled above)
+
 dipy (handled above)
 
 ## Operation
