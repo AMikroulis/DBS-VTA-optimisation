@@ -4,6 +4,7 @@ from scipy import ndimage as nd
 from scipy.spatial import Delaunay, ConvexHull, KDTree
 from scipy.ndimage import binary_closing, binary_fill_holes
 import nibabel as nib
+import pyvista as pv
 import json as jsn
 import h5py as hdf
 import os
@@ -185,7 +186,7 @@ def generate_contact_set_file(basepath, subID, contactslist, currentslist, only_
         mh['Electrodes'][0]['TipPosition']['y[mm]'] = tip_position[1]
         mh['Electrodes'][0]['TipPosition']['z[mm]'] = tip_position[2]
 
-        mh['Solver']['MaximumSteps'] = 1500
+        mh['Solver']['MaximumSteps'] = 5000
 
         mh['PointModel']['Lattice']['Shape']['x'] = 119
         mh['PointModel']['Lattice']['Shape']['y'] = 119
@@ -249,12 +250,12 @@ def generate_contact_set_file(basepath, subID, contactslist, currentslist, only_
 def discretize(original_atlas_coords, grid_size=0.2):
     # SDF method for oversized atlases
     if len(original_atlas_coords) >50000:
-        print('Oversized atlas. Using SDF method.')
+        # print('Oversized atlas. Using SDF method.')
         # calculate the bounding box of the input points
         min_coords = npy.min(original_atlas_coords, axis=0)
         max_coords = npy.max(original_atlas_coords, axis=0)
         
-        print('constructing grid')
+        # print('constructing grid')
         # create a 3D grid covering the bounding box
         x_grid = npy.arange(min_coords[0], max_coords[0], grid_size)
         y_grid = npy.arange(min_coords[1], max_coords[1], grid_size)
@@ -263,12 +264,12 @@ def discretize(original_atlas_coords, grid_size=0.2):
         grid_points = npy.vstack([xv.ravel(), yv.ravel(), zv.ravel()]).T
 
         # KDTree for efficient nearest neighbor search
-        print('building tree')
+        # print('building tree')
         
         kdtree = KDTree(original_atlas_coords)
 
         # signed distance for each grid point
-        print('computing sdf')
+        # print('computing sdf')
 
         distances, _ = kdtree.query(grid_points)
         sdf = distances.reshape(xv.shape)
@@ -285,7 +286,7 @@ def discretize(original_atlas_coords, grid_size=0.2):
 
     # old version with small meshes (low-res STN atlases)
     if len(original_atlas_coords) <=50000:
-        print('Using convex-hull method for low-res atlas')
+        # print('Using convex-hull method for low-res atlas')
         xSize = npy.max(original_atlas_coords[0]) - npy.min(original_atlas_coords[0])
         ySize = npy.max(original_atlas_coords[1]) - npy.min(original_atlas_coords[1])
         zSize = npy.max(original_atlas_coords[2]) - npy.min(original_atlas_coords[2])
@@ -416,16 +417,16 @@ def load_vta(vta_path, scalefactor = 10):
 def commonspace(atlas, vta, atlas_m, vta_m, atlas_o, vta_o):
     
     voxel_to_mm = atlas_m
-    print('commonspace: applying a 10x magnification for volume measurement')
+    # print('commonspace: applying a 10x magnification for volume measurement')
     adjusted_diag = 10 / voxel_to_mm
     adjusted_offset = 10*atlas_o
 
     atlas_zoomin_pre = npy.rint(nd.zoom(atlas, adjusted_diag)).astype('bool')
-    print('commonspace: getting the magnified point coordinates')
+    # print('commonspace: getting the magnified point coordinates')
     atlas_zoomin_points = npy.argwhere(atlas_zoomin_pre)
-    print(f'commonspace: got {len(atlas_zoomin_points)} magnified points\nStarting discretization of magnified atlas')
+    # print(f'commonspace: got {len(atlas_zoomin_points)} magnified points\nStarting discretization of magnified atlas')
     atlas_zoomin_post, zoomin_scale, zoomin_offset = discretize(atlas_zoomin_points, 1)
-    print('commonspace: finished discretization of magnified atlas\n Starting padding')
+    # print('commonspace: finished discretization of magnified atlas\n Starting padding')
     atlas_zoomin = npy.pad(atlas_zoomin_post, ((zoomin_offset[0],0),(zoomin_offset[1],0),(zoomin_offset[2],0)))
 
     vta_zoomin = npy.rint(nd.zoom(vta, vta_m.diagonal())).astype('bool')
@@ -497,11 +498,13 @@ def single_folder(basepath, subid, side, contacts_suffix, current_suffix, atlas_
                 atlas = atlas_r
                 atlas_m = atlas_r_m
                 atlas_o = atlas_r_o
+                atlas_points = vis_r
                 results_folder = results_sides_list[0]
             else:
                 atlas = atlas_l
                 atlas_m = atlas_l_m
                 atlas_o = atlas_l_o
+                atlas_points = vis_l
                 results_folder = results_sides_list[1]
             
             def find_ossdbs_folder(basedir, sid):
@@ -517,21 +520,82 @@ def single_folder(basepath, subid, side, contacts_suffix, current_suffix, atlas_
             
             ossdbs_folder = find_ossdbs_folder(basepath, subid)
 
+            
             vta, vta_m, vta_o, vis_vta = load_vta(os.path.join(ossdbs_folder, f'{results_folder}','VTA_solution_Lattice.nii'))
             npy.save(f'{current_path}/stimulations/visualization_{subid}_{atlas_name}_{side}_VTA.npy', vis_vta)
-            print(f'single_folder: moving to same-space coordinates')
+            # print(f'single_folder: moving to same-space coordinates')
             atlas_padded, vta_padded = commonspace(atlas, vta, atlas_m, vta_m, atlas_o, vta_o)
-            print(f'single_folder: matching dimensions')
+            # print(f'single_folder: matching dimensions')
             atlas_padded, vta_padded = matchdims(atlas_padded, vta_padded)
 
-            overlaps.append(npy.sum(atlas_padded * vta_padded) / npy.sum(atlas_padded))
-            if npy.sum(vta_padded) > 0:
-                overlaps_vta.append(npy.sum(atlas_padded * vta_padded)  / npy.sum(vta_padded))
+            # try:
+            efield_path = os.path.join(ossdbs_folder, f'{results_folder}','E-field.vtu')
+            print(f"Loading E-field from: {efield_path}")
+            efield = pv.read(efield_path)
+            print(f"E-field loaded: {efield.n_points} points, {efield.n_cells} cells")
+            efield = efield.clean(tolerance=1e-6)
+            print(f"E-field cleaned: {efield.n_points} points, {efield.n_cells} cells")
+            
+
+            magnitude = npy.linalg.norm(efield.point_data['E_field_real'], axis=1)
+            efield.point_data['E_Magnitude'] = magnitude
+
+            threshold_mV_per_mm = 200
+            iso = threshold_mV_per_mm * 1e-3
+            efield_vta = efield.threshold(iso, scalars="E_Magnitude", invert=False)
+            print(f"E-field VTA after threshold: {efield_vta.n_points} points, {efield_vta.n_cells} cells, volume={efield_vta.volume}")
+            if efield_vta.n_cells == 0:
+                print("Warning: Thresholded E-field VTA is empty.")
+                
+            vta_volume = abs(efield_vta.volume)
+
+            atlas_points = npy.unique(atlas_points, axis=0)
+            print(f"Unique atlas points: {len(atlas_points)}")
+            mins = npy.min(atlas_points, axis=0)
+            maxs = npy.max(atlas_points, axis=0)
+            extents = maxs - mins
+            print("Extents:", extents)
+
+            cov = npy.cov(atlas_points.T)
+            svd = npy.linalg.svd(cov, compute_uv=False)
+            print(f"SVD singular values (check for coplanarity): {svd}")
+            if svd[2] / svd[0] < 1e-4:
+                print("Adding jitter to avoid coplanarity issues")
+                jitter = npy.random.normal(0, 1e-5, atlas_points.shape)
+                atlas_points += jitter
+
+            atlas_point_cloud = pv.PolyData(atlas_points)
+            volume = atlas_point_cloud.delaunay_3d(tol=1e-3, offset=2.5)
+            print(f"Delaunay volume: {volume.n_points} points, {volume.n_cells} cells, volume={volume.volume}")
+
+            surf = volume.extract_surface().triangulate()
+            print(f"Surface before clean: {surf.n_points} points, {surf.n_cells} cells, is_manifold={surf.is_manifold}")
+            surf = surf.fill_holes(hole_size=1.0).clean(tolerance=1e-6)
+            print(f"Surface after clean: {surf.n_points} points, {surf.n_cells} cells, is_manifold={surf.is_manifold}")
+            if not surf.is_manifold:
+                print("Warning: Surface is not manifold! This may cause clip_surface failures.")
+
+            try:
+                clipped = efield_vta.clip_surface(surf, invert=True)
+                print(f"Clipped mesh: {clipped.n_points} points, {clipped.n_cells} cells, volume={abs(clipped.volume)}")
+            except Exception as e:
+                print(f"clip_surface failed: {e}")
+                print("Falling back to boolean intersection")
+                clipped = efield_vta.boolean_intersection(volume)
+                print(f"Boolean intersection: {clipped.n_points} points, {clipped.n_cells} cells, volume={abs(clipped.volume)}")
+
+            intersection_volume = abs(clipped.volume)
+            if surf.volume != 0:
+                overlaps.append(intersection_volume / abs(surf.volume))
+            else:
+                overlaps.append(0)
+            if vta_volume != 0:
+                overlaps_vta.append(intersection_volume / vta_volume)
             else:
                 overlaps_vta.append(0)
-            npy.savez_compressed(f'{current_path}/stimulations/OSSDBS_{side}_{atlas_name}_{contacts_suffix}_{current_suffix}_VTA.npz', atlas=atlas_padded, vta=vta_padded)
-            npy.savez(f'{current_path}/stimulations/OSSDBS_{side}_{atlas_name}_{contacts_suffix}_{current_suffix}_atlas_matrix.npz', atlas_m=atlas_m, atlas_o=atlas_o)
-            npy.savez(f'{current_path}/stimulations/OSSDBS_{side}_{atlas_name}_{contacts_suffix}_{current_suffix}_vta_matrix.npz', vta_m=vta_m, vta_o=vta_o)
+            print('using E-field -> VTA mesh')
+            woopsy.add_info('contacts_mt', f'overlap: lossless_Efield_VTA: {subid}, side: {side}, atlas: {atlas_name}')
+            
         except:
             print(f'Could not read {path}, {side}')
             woopsy.add_woopsie('contacts_mt',f'Error in single folder processing at {path}, {side}. Check the file paths.')
@@ -609,18 +673,20 @@ def current_step_run(lefts, rights, current_step_L, current_step_R, subid, basep
             
             ovlps, ovlps_VTA = single_folder(basepath=basepath, subid= subid, side='left', contacts_suffix=contacts_sffx, current_suffix = f'_{total_current}', atlas_paths_dict=atlas_paths, selected_atlas_path=atlas_path_selection, woopsy=woopsy, storage_l = runtime_storage_l, storage_r = runtime_storage_r)
             lock.acquire()
-            ipns.append(subid)
-            contact_pairs_list.append(str(Left_contacts)[1:-1])
-            sidelist.append('left')
-            I_list.append(current_step_L)
-            motor_ovlps.append(ovlps[0])
-            assoc_ovlps.append(ovlps[1])
-            if atlas_path_selection == 'distal_native':
-                limbic_ovlps.append(ovlps[2])
-                third_overlap = ovlps[2]
-            motor_VTA_ovlps.append(ovlps_VTA)
-            outputs.append([subid, 'left',contacts_str, current_step_L, ovlps[0], ovlps[1], third_overlap, ovlps_VTA])
-            lock.release()
+            try:
+                ipns.append(subid)
+                contact_pairs_list.append(str(Left_contacts)[1:-1])
+                sidelist.append('left')
+                I_list.append(current_step_L)
+                motor_ovlps.append(ovlps[0])
+                assoc_ovlps.append(ovlps[1])
+                if atlas_path_selection == 'distal_native':
+                    limbic_ovlps.append(ovlps[2])
+                    third_overlap = ovlps[2]
+                motor_VTA_ovlps.append(ovlps_VTA)
+                outputs.append([subid, 'left',contacts_str, current_step_L, ovlps[0], ovlps[1], third_overlap, ovlps_VTA])
+            finally:
+                lock.release()
     except:
         print(f'{basepath} L side fail')
         woopsy.add_woopsie('contacts_mt', f'Left side of {subid} failed during current step run')
@@ -691,18 +757,20 @@ def current_step_run(lefts, rights, current_step_L, current_step_R, subid, basep
             
             ovlps, ovlps_VTA = single_folder(basepath=basepath, subid=subid, side='right', contacts_suffix=contacts_sffx, current_suffix = f'_{total_current}', atlas_paths_dict=atlas_paths, selected_atlas_path=atlas_path_selection, woopsy=woopsy, storage_l=runtime_storage_l, storage_r=runtime_storage_r)
             lock.acquire()
-            ipns.append(subid)
-            contact_pairs_list.append(str(Right_contacts)[1:-1])
-            I_list.append(current_step_R)
-            sidelist.append('right')
-            motor_ovlps.append(ovlps[0])
-            assoc_ovlps.append(ovlps[1])
-            if atlas_path_selection == 'distal_native':
-                limbic_ovlps.append(ovlps[2])
-                third_overlap = ovlps[2]
-            motor_VTA_ovlps.append(ovlps_VTA)
-            outputs.append([subid, 'right',contacts_str, current_step_R, ovlps[0], ovlps[1], third_overlap, ovlps_VTA])
-            lock.release()
+            try:
+                ipns.append(subid)
+                contact_pairs_list.append(str(Right_contacts)[1:-1])
+                I_list.append(current_step_R)
+                sidelist.append('right')
+                motor_ovlps.append(ovlps[0])
+                assoc_ovlps.append(ovlps[1])
+                if atlas_path_selection == 'distal_native':
+                    limbic_ovlps.append(ovlps[2])
+                    third_overlap = ovlps[2]
+                motor_VTA_ovlps.append(ovlps_VTA)
+                outputs.append([subid, 'right',contacts_str, current_step_R, ovlps[0], ovlps[1], third_overlap, ovlps_VTA])
+            finally:
+                lock.release()
     except:
         print(f'{basepath} R side fail')
         woopsy.add_woopsie('contacts_mt', f'Right side of {subid} failed during current step run')
@@ -815,7 +883,6 @@ def external_call(basedir, selected_ipns, contacts_mode, min_current, max_curren
             left_contacts_set, right_contacts_set = contact_selection_module.run(bp,sid, contact_nudge, woopsy, atlas_selection, runtime_storage_l, runtime_storage_r)
             
             woopsy.add_info('contacts_mt',f'info : contact selection completed for {sid}')
-            lock = threading.Lock()
 
             init_current = npy.round(initial_current * 0.001, 4)
 
@@ -884,8 +951,8 @@ def external_call(basedir, selected_ipns, contacts_mode, min_current, max_curren
             print('File paths set.\nStarting current estimation')
 
 
-            current_ratio_estimate_R = current_estimation.run(bp, results_path_R, sid, 0, right_contacts_set, atlas_selection,runtime_storage_l, runtime_storage_r)
-            current_ratio_estimate_L = current_estimation.run(bp, results_path_L, sid, 1, left_contacts_set, atlas_selection, runtime_storage_l, runtime_storage_r)
+            current_ratio_estimate_R = current_estimation.run(bp, results_path_R, sid, 0, right_contacts_set, atlas_selection,runtime_storage_l, runtime_storage_r, woopsy)
+            current_ratio_estimate_L = current_estimation.run(bp, results_path_L, sid, 1, left_contacts_set, atlas_selection, runtime_storage_l, runtime_storage_r, woopsy)
 
             current_estimate_L = npy.round(init_current * current_ratio_estimate_L,4)
             current_estimate_R = npy.round(init_current * current_ratio_estimate_R,4)

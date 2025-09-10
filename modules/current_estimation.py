@@ -5,7 +5,7 @@ import modules.contact_selection_module as contact_selection_module
 from modules.woopsies import Woopsies as woops
 import os
 
-def run(basepath, results_path, subid, side, contacts_list, atlas_mode, storage_l, storage_r):
+def run(basepath, results_path, subid, side, contacts_list, atlas_mode, storage_l, storage_r, woopsy = None):
     print(results_path)
     fieldcsv = pd.read_csv(f'{results_path}/E_field_Lattice.csv')
 
@@ -19,36 +19,6 @@ def run(basepath, results_path, subid, side, contacts_list, atlas_mode, storage_
     field_i = npy.zeros([array_length],'float32')
     field_i[:] = fieldcsv['magnitude']
 
-    vta_0 = npy.argwhere(field_i[:] >=0.2)
-    subset_length = len(vta_0)
-    vta_field = npy.zeros([subset_length,4],'float32')
-    vta_field_coords = npy.zeros([subset_length,3],'float32')
-
-    for _index in range(subset_length):
-        old_index = vta_0[_index]
-        vta_field[_index,0] = field_coords[old_index,0]
-        vta_field[_index,1] = field_coords[old_index,1]
-        vta_field[_index,2] = field_coords[old_index,2]
-        vta_field[_index,3] = field_i[old_index]
-        vta_field_coords[_index,0] = field_coords[old_index,0]
-        vta_field_coords[_index,1] = field_coords[old_index,1]
-        vta_field_coords[_index,2] = field_coords[old_index,2]
-
-    hull = scy.spatial.ConvexHull(vta_field_coords)
-    vertex_points = npy.zeros([len(hull.vertices),3],'float32')
-
-    for point in range(len(hull.vertices)):
-        vertex_points[point,0] = vta_field[hull.vertices[point],0]
-        vertex_points[point,1] = vta_field[hull.vertices[point],1]
-        vertex_points[point,2] = vta_field[hull.vertices[point],2]
-
-    contact_coordinates = []
-    for contact in contacts_list:
-        contact_coordinates.append(contact_selection_module.electrode_contacts(basepath,subid,side)[contact])
-
-    contact_coordinates = npy.array(contact_coordinates)    
-    contacts_midpoint = npy.average(contact_coordinates,axis=0)
-
     if atlas_mode == 'distal':
         atlas_paths = dict()
         atlas_paths['distal_native'] = f'{basepath}/{subid}/atlases/DISTAL Minimal (Ewert 2017)/atlas_index.mat'
@@ -61,41 +31,37 @@ def run(basepath, results_path, subid, side, contacts_list, atlas_mode, storage_
     if side == 1:
         atlas_img_, atlas_matrix_, atlas_offset_ = atlas_l, atlas_l_m, atlas_l_o
 
-    valid_atlas_points = npy.argwhere(atlas_img_)
-    vectors_to_atlas_points = npy.zeros([valid_atlas_points.shape[0],3],'float32')
+    # transform field coordinates to atlas voxel space
+    field_coords_in_atlas_voxels = npy.rint((field_coords - atlas_offset_) * atlas_matrix_).astype(int)
 
-    for point_i in range(valid_atlas_points.shape[0]):
-        vectors_to_atlas_points[point_i] = npy.array([valid_atlas_points[point_i,0],valid_atlas_points[point_i,1],valid_atlas_points[point_i,2]]) / atlas_matrix_ + atlas_offset_
-
-    furthest_point = vectors_to_atlas_points[npy.argmax(npy.linalg.norm(vectors_to_atlas_points,axis=1))]
-    vector_to_furthest = furthest_point - contacts_midpoint
-
-    if atlas_mode == 'distal':
-        centroid_coords = contact_selection_module.centroid(atlas_img_, atlas_matrix_, atlas_offset_)
-
-    vector_to_centroid = centroid_coords - contacts_midpoint
+    # filter coordinates that are within the atlas bounds
+    dims = atlas_img_.shape
+    valid_indices = npy.all((field_coords_in_atlas_voxels >= 0) & (field_coords_in_atlas_voxels < dims), axis=1)
     
-    vector_to_vertices = vertex_points - contacts_midpoint
+    field_coords_in_atlas_voxels = field_coords_in_atlas_voxels[valid_indices]
+    field_magnitudes_in_bounds = field_i[valid_indices]
 
-    target = vector_to_centroid
-    target_coords = centroid_coords
+    # find which of these points are within the target region
+    atlas_values_at_field_points = atlas_img_[field_coords_in_atlas_voxels[:, 0], field_coords_in_atlas_voxels[:, 1], field_coords_in_atlas_voxels[:, 2]]
+    field_in_target = field_magnitudes_in_bounds[atlas_values_at_field_points > 0]
 
-    
-    vector_angle = npy.zeros(vector_to_vertices.shape[0],'float32')
-    for vertex_i in range(vector_to_vertices.shape[0]):
-        vector_angle[vertex_i] = npy.arccos(npy.dot(target,vector_to_vertices[vertex_i]) / (npy.linalg.norm(target) * npy.linalg.norm(vector_to_vertices[vertex_i])))
-
-    smallest_angles = npy.argsort(vector_angle)
-    closest_vertices = vertex_points[smallest_angles[:3]]
-    closest_vertices_midpoint = npy.average(closest_vertices,axis=0)
-
-    distance_to_current_midpoint = npy.linalg.norm(closest_vertices_midpoint - contacts_midpoint)
-    distance_to_centroid = npy.linalg.norm(target_coords - contacts_midpoint)
-    distance_ratio = distance_to_centroid / distance_to_current_midpoint
-
-    current_ratio_estimate = distance_ratio**2
+    if len(field_in_target) > 0:
+        median_e_field = npy.median(field_in_target)
+        if median_e_field > 1e-6: # avoid division by zero or very small numbers
+            current_ratio_estimate = 0.2 / median_e_field
+            woopsy.add_info('current_estimation', f'Calculated current ratio for {subid}, side: {side} : {current_ratio_estimate:.2f} -- median field: {median_e_field:.4f} V/mm')
+        else:
+            current_ratio_estimate = 1.0 # default to 1 if the median field is too low and nag about it in the logs
+            woopsy.add_info('current_estimation', f'Calculated current ratio for {subid}, side: {side} : too low, setting to 1 -- median field: {median_e_field:.4f} V/mm (low field)')
+            woopsy.add_woopsie('current_estimation', f'Median e-field for {subid}, side: {side} : too low, setting scaling factor to 1 --- check the reconstruction!')
+    else:
+        # if no overlap between field and atlas, use the default (1) and nag about it in the logs
+        current_ratio_estimate = 1.0
+        woopsy.add_info('current_estimation', f'Median e-field for {subid}, side: {side} : no overlap, setting to 1')
+        woopsy.add_woopsie('current_estimation', f'No overlap between field and atlas for {subid}, side: {side} --- check the reconstruction!')
 
     return current_ratio_estimate
+
 
 if __name__ == '__main__':
     print('not called')
