@@ -73,6 +73,8 @@ A small slider adjusts how much of the harmonic mean range (from the maximum har
 
 Clicking the “save” button saves the current settings and plots for both hemispheres to a printable html file, with a timestamp (creation date and time).
 
+## Technical Details
+A short technical summary is linked [here](docs/technical_summary.md). CSV output example in the [overlaps.csv results guide](docs/overlaps.csv_results_interpretation_guide.png).
 
 ## Licensing and Copyright notice
 This software is released under the terms of the GNU General Public License v3.0 (GPL-3.0). You can redistribute it and/or modify it under the terms of the GPL-3.0 as published by the Free Software Foundation.
